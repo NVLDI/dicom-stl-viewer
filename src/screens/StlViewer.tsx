@@ -156,17 +156,7 @@ export default function StlViewer() {
 
   return (
     <View style={styles.container}>
-      {(stlFormat && stlTriangleCount !== null && dimensions) && (
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>
-            Format: {stlFormat.toUpperCase()} | Triangles: {stlTriangleCount}
-          </Text>
-          <Text style={styles.infoText}>
-            W: {dimensions.x.toFixed(1)} | H: {dimensions.y.toFixed(1)} | D: {dimensions.z.toFixed(1)}
-          </Text>
-          {fileName && <Text style={styles.infoText}>Filename :{fileName}</Text>}
-        </View>
-      )}
+      
 
       
 
@@ -189,7 +179,17 @@ export default function StlViewer() {
           <View ref={glViewWrapperRef} collapsable={false} style={styles.viewer} {...panResponder.panHandlers}>
             <GLView style={{ flex: 1 }} onContextCreate={onContextCreate} />
           </View>
-
+{(stlFormat && stlTriangleCount !== null && dimensions) && (
+        <View style={styles.infoBoxInline}>
+          <Text style={styles.infoText}>
+            Format: {stlFormat.toUpperCase()} | Triangles: {stlTriangleCount}
+          </Text>
+          <Text style={styles.infoText}>
+            W: {dimensions.x.toFixed(1)} | H: {dimensions.y.toFixed(1)} | D: {dimensions.z.toFixed(1)}
+          </Text>
+          {fileName && <Text style={styles.infoText}>Filename :{fileName}</Text>}
+        </View>
+      )}
           <View style={styles.iconBar}>
             <IconBtn icon="refresh-ccw" onPress={() => {
               if (cameraRef.current) {
@@ -258,15 +258,12 @@ const styles = StyleSheet.create({
     top: '45%',
     alignItems: 'center',
   },
-  infoBox: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 30,
-    alignSelf: 'center',
-    backgroundColor: '#00000088',
-    padding: 6,
-    borderRadius: 6,
-    zIndex: 10,
-  },
+  infoBoxInline: {
+  marginTop: 0,
+  padding: 3,
+  borderRadius: 6,
+  backgroundColor: '#222',
+},
   infoText: {
     color: 'white',
     fontSize: 14,

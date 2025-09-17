@@ -166,14 +166,7 @@ export default function ObjViewer() {
 
   return (
     <View style={styles.container}>
-      {dimensions && (
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>
-            W: {dimensions.x.toFixed(2)} | H: {dimensions.y.toFixed(2)} | D: {dimensions.z.toFixed(2)}
-          </Text>
-          {fileName && <Text style={styles.infoText}>Filename: {fileName}</Text>}
-        </View>
-      )}
+      
 
       {!fileUri ? (
         <View style={styles.center}>
@@ -194,7 +187,14 @@ export default function ObjViewer() {
           <View ref={glViewWrapperRef} collapsable={false} style={styles.viewer} {...panResponder.panHandlers}>
             <GLView style={{ flex: 1 }} onContextCreate={onContextCreate} />
           </View>
-
+{dimensions && (
+        <View style={styles.infoBoxInline}>
+          <Text style={styles.infoText}>
+            W: {dimensions.x.toFixed(2)} | H: {dimensions.y.toFixed(2)} | D: {dimensions.z.toFixed(2)}
+          </Text>
+          {fileName && <Text style={styles.infoText}>Filename: {fileName}</Text>}
+        </View>
+      )}
           <View style={styles.iconBar}>
             <IconBtn icon="refresh-ccw" onPress={() => {
               if (cameraRef.current && meshRef.current) {
@@ -288,14 +288,11 @@ const styles = StyleSheet.create({
     top: '45%',
     alignItems: 'center',
   },
-  infoBox: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 30,
-    alignSelf: 'center',
-    backgroundColor: '#00000088',
-    padding: 6,
-    borderRadius: 6,
-    zIndex: 10,
+  infoBoxInline: {
+     marginTop: 0,
+  padding: 3,
+  borderRadius: 6,
+  backgroundColor: '#222',
   },
   infoText: { color: 'white', fontSize: 14, textAlign: 'center' },
   iconBar: {
