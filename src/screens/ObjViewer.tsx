@@ -6,18 +6,19 @@ import {
   Alert,
   ActivityIndicator,
   TouchableOpacity,
-  Platform,
   useColorScheme,
   PanResponder,
 } from 'react-native';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
 import { captureRef } from 'react-native-view-shot';
 import { Ionicons, Feather, MaterialIcons } from '@expo/vector-icons';
-import { OBJLoader } from 'three-stdlib/loaders/OBJLoader';
-import { MTLLoader } from 'three-stdlib/loaders/MTLLoader';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader';
+import { Asset } from 'expo-asset';
 
 export default function ObjViewer() {
   const [fileUri, setFileUri] = useState<string | null>(null);
@@ -98,54 +99,83 @@ export default function ObjViewer() {
     const renderer = new Renderer({ gl });
     renderer.setSize(w, h);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.8));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(10, 10, 10);
+    scene.add(dir);
 
     try {
       setLoading(true);
 
-      // Load OBJ and possible MTL
-      const response = await fetch(fileUri);
-      const objText = await response.text();
-
+      // --- Load OBJ ---
+      const objText = await FileSystem.readAsStringAsync(fileUri, { encoding: 'utf8' });
+      const objLoader = new OBJLoader();
       let object: THREE.Object3D;
 
-      // Try to find a matching .mtl
-      const basePath = fileUri.substring(0, fileUri.lastIndexOf('/'));
+      // --- Load MTL if exists ---
+      const basePath = fileUri.substring(0, fileUri.lastIndexOf('/') + 1);
       const mtlUri = fileUri.replace(/\.obj$/i, '.mtl');
+      const mtlInfo = await FileSystem.getInfoAsync(mtlUri);
 
-      try {
-        const mtlResponse = await fetch(mtlUri);
-        if (mtlResponse.ok) {
-          const mtlText = await mtlResponse.text();
-          const mtlLoader = new MTLLoader();
-          const materials = mtlLoader.parse(mtlText, basePath);
-          materials.preload();
+      if (mtlInfo.exists) {
+        const mtlText = await FileSystem.readAsStringAsync(mtlUri, { encoding: 'utf8' });
+        const mtlLoader = new MTLLoader();
+        const materials = mtlLoader.parse(mtlText);
+        materials.preload();
 
-          const loader = new OBJLoader();
-          loader.setMaterials(materials);
-          object = loader.parse(objText);
-        } else {
-          const loader = new OBJLoader();
-          object = loader.parse(objText);
+        // --- Proper async texture loading ---
+        for (const matName of Object.keys(materials.materials)) {
+          const mat: any = materials.materials[matName];
+
+          if (mat.map && typeof mat.map === 'string') {
+            try {
+              const texPath = basePath + mat.map;
+              const asset = Asset.fromURI(texPath);
+              await asset.downloadAsync();
+
+              await new Promise<void>((resolve) => {
+                new THREE.TextureLoader().load(
+                  asset.localUri!,
+                  (texture) => {
+                    texture.flipY = false;
+                    mat.map = texture;
+                    mat.needsUpdate = true;
+                    resolve();
+                  },
+                  undefined,
+                  () => resolve() // fail silently
+                );
+              });
+            } catch (err) {
+              console.warn('Texture load failed for', mat.map, err);
+            }
+          } else if (mat.color) {
+            mat.color = new THREE.Color(mat.color);
+          }
         }
-      } catch {
-        const loader = new OBJLoader();
-        object = loader.parse(objText);
+
+        objLoader.setMaterials(materials);
       }
+
+      object = objLoader.parse(objText);
+
+      object.traverse((child: any) => {
+        if (child.isMesh) {
+          child.material.side = THREE.DoubleSide;
+          child.material.needsUpdate = true;
+          child.material.color = new THREE.Color(0xffffff); // Ensure no tint
+        }
+      });
 
       meshRef.current = object;
       scene.add(object);
 
-      // Center + scale
+      // --- Fit camera ---
       const box = new THREE.Box3().setFromObject(object);
       const sizeVec = new THREE.Vector3();
       box.getSize(sizeVec);
       setDimensions(sizeVec);
-
-      const size = sizeVec.length();
-      const scale = size > 0 ? 50 / size : 1;
-      object.scale.setScalar(scale);
-      object.position.sub(box.getCenter(new THREE.Vector3()));
+      fitCameraToObject(camera, object);
 
       setLoading(false);
 
@@ -166,8 +196,6 @@ export default function ObjViewer() {
 
   return (
     <View style={styles.container}>
-      
-
       {!fileUri ? (
         <View style={styles.center}>
           <Text style={styles.info}>Upload a local .obj file to view</Text>
@@ -187,14 +215,16 @@ export default function ObjViewer() {
           <View ref={glViewWrapperRef} collapsable={false} style={styles.viewer} {...panResponder.panHandlers}>
             <GLView style={{ flex: 1 }} onContextCreate={onContextCreate} />
           </View>
-{dimensions && (
-        <View style={styles.infoBoxInline}>
-          <Text style={styles.infoText}>
-            W: {dimensions.x.toFixed(2)} | H: {dimensions.y.toFixed(2)} | D: {dimensions.z.toFixed(2)}
-          </Text>
-          {fileName && <Text style={styles.infoText}>Filename: {fileName}</Text>}
-        </View>
-      )}
+
+          {dimensions && (
+            <View style={styles.infoBoxInline}>
+              <Text style={styles.infoText}>
+                W: {dimensions.x.toFixed(2)} | H: {dimensions.y.toFixed(2)} | D: {dimensions.z.toFixed(2)}
+              </Text>
+              {fileName && <Text style={styles.infoText}>Filename: {fileName}</Text>}
+            </View>
+          )}
+
           <View style={styles.iconBar}>
             <IconBtn icon="refresh-ccw" onPress={() => {
               if (cameraRef.current && meshRef.current) {
@@ -202,34 +232,17 @@ export default function ObjViewer() {
               }
             }} />
             <IconBtn icon={autoRotate ? 'pause' : 'play'} onPress={() => setAutoRotate(!autoRotate)} />
-            <IconBtn icon="color-palette-outline" pack="ion" onPress={() => {
-              if (meshRef.current) {
-                meshRef.current.traverse((child: any) => {
-                  if (child.isMesh) {
-                    const material = child.material as THREE.MeshStandardMaterial;
-                    const newColor = '#' + Math.floor(Math.random() * 16777215).toString(16);
-                    material.color.set(newColor);
-                  }
-                });
-              }
-            }} />
             <IconBtn icon={wireframe ? 'eye-off' : 'eye'} onPress={() => {
               if (meshRef.current) {
                 meshRef.current.traverse((child: any) => {
-                  if (child.isMesh) {
-                    child.material.wireframe = !child.material.wireframe;
-                  }
+                  if (child.isMesh) child.material.wireframe = !child.material.wireframe;
                 });
                 setWireframe(!wireframe);
               }
             }} />
             <IconBtn icon="camera" onPress={async () => {
               try {
-                const uri = await captureRef(glViewWrapperRef, {
-                  format: 'png',
-                  quality: 1,
-                  result: 'tmpfile',
-                });
+                const uri = await captureRef(glViewWrapperRef, { format: 'png', quality: 1, result: 'tmpfile' });
                 Alert.alert('📸 Screenshot saved', uri);
               } catch (err: any) {
                 Alert.alert('Screenshot failed', err.message);
@@ -239,6 +252,7 @@ export default function ObjViewer() {
               setFileUri(null);
               setFileName(null);
               setDimensions(null);
+              hasLoadedRef.current = false;
             }} disabled={loading} />
           </View>
         </>
@@ -267,7 +281,7 @@ function fitCameraToObject(camera: THREE.PerspectiveCamera, object: THREE.Object
   const fov = camera.fov * (Math.PI / 180);
   let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
 
-  cameraZ *= 1.5; // padding
+  cameraZ *= 1.5;
   camera.position.set(center.x, center.y, cameraZ);
   camera.lookAt(center);
 
@@ -281,37 +295,10 @@ const styles = StyleSheet.create({
   viewer: { flex: 1, marginVertical: 10, minHeight: 300 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   info: { color: '#6c757d', fontSize: 16, marginTop: 10, textAlign: 'center' },
-  loader: {
-    position: 'absolute',
-    zIndex: 10,
-    alignSelf: 'center',
-    top: '45%',
-    alignItems: 'center',
-  },
-  infoBoxInline: {
-     marginTop: 0,
-  padding: 3,
-  borderRadius: 6,
-  backgroundColor: '#222',
-  },
+  loader: { position: 'absolute', zIndex: 10, alignSelf: 'center', top: '45%', alignItems: 'center' },
+  infoBoxInline: { marginTop: 0, padding: 3, borderRadius: 6, backgroundColor: '#222' },
   infoText: { color: 'white', fontSize: 14, textAlign: 'center' },
-  iconBar: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    backgroundColor: '#f8f9fa',
-    borderTopWidth: 1,
-    borderColor: '#dee2e6',
-  },
-  iconButton: {
-    backgroundColor: '#ffffff',
-    padding: 10,
-    marginHorizontal: 6,
-    borderRadius: 8,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
+  iconBar: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 8, backgroundColor: '#f8f9fa', borderTopWidth: 1, borderColor: '#dee2e6' },
+  iconButton: { backgroundColor: '#ffffff', padding: 10, marginHorizontal: 6, borderRadius: 8, elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4 },
   disabledBtn: { opacity: 0.6 },
 });
