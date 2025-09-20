@@ -7,7 +7,7 @@ import ObjViewer from './src/screens/ObjViewer';
 
 export default function App() {
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.title}>3D Viewers</Text>
         
@@ -26,7 +26,7 @@ export default function App() {
           <ObjViewer />
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
