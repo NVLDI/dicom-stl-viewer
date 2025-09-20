@@ -156,10 +156,6 @@ export default function StlViewer() {
 
   return (
     <View style={styles.container}>
-      
-
-      
-
       {!fileUri ? (
         <View style={styles.center}>
           <Text style={styles.info}>Upload a local .stl file to view</Text>
